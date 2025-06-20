@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { ApplicationFormSchema, type ApplicationFormData } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
-import { reviewApplication, type ReviewApplicationOutput } from '@/ai/flows/review-application';
+import { reviewApplication, type ReviewApplicationOutput, type ReviewApplicationInput } from '@/ai/flows/review-application';
 import { appendToSpreadsheet, type SheetRowData } from '@/services/google-sheets-service';
 
 interface SubmitApplicationState {
@@ -58,7 +58,7 @@ export async function submitApplication(
     ...validatedFields.data,
     applicationId,
     status: "SUBMITTED" as const,
-    submissionDate: serverTimestamp(),
+    submissionDate: serverTimestamp(), // Firestore server timestamp for DB
   };
 
   try {
@@ -66,11 +66,24 @@ export async function submitApplication(
 
     const { personalDetails, academicHistory, parentGuardianInfo } = validatedFields.data;
     
-    const formDataForAI = {
-      ...personalDetails,
-      birthDate: personalDetails.birthDate.toISOString(), // Convert Date to ISO string
-      ...academicHistory,
-      ...parentGuardianInfo,
+    const formDataForAI: ReviewApplicationInput['formData'] = {
+      fullName: personalDetails.fullName,
+      nisn: personalDetails.nisn || undefined,
+      gender: personalDetails.gender,
+      birthPlace: personalDetails.birthPlace,
+      birthDate: personalDetails.birthDate.toISOString(),
+      address: personalDetails.address,
+      phoneNumber: personalDetails.phoneNumber || undefined,
+      previousSchool: academicHistory.previousSchool,
+      graduationYear: academicHistory.graduationYear,
+      averageScore: academicHistory.averageScore, 
+      fatherName: parentGuardianInfo.fatherName,
+      fatherOccupation: parentGuardianInfo.fatherOccupation || undefined,
+      motherName: parentGuardianInfo.motherName,
+      motherOccupation: parentGuardianInfo.motherOccupation || undefined,
+      guardianName: parentGuardianInfo.guardianName || undefined,
+      guardianOccupation: parentGuardianInfo.guardianOccupation || undefined,
+      parentPhoneNumber: parentGuardianInfo.parentPhoneNumber,
     };
     
     let aiReviewResult: ReviewApplicationOutput | null = null;
@@ -83,27 +96,29 @@ export async function submitApplication(
         aiReviewNotes: JSON.stringify(aiReviewResult)
       }, { merge: true });
     } catch (aiError) {
-      let errorMessage = "Unknown AI error";
+      let errorMessage = "AI review encountered an issue."; // Default message
       if (aiError instanceof Error) {
-        errorMessage = aiError.message;
+        errorMessage = `AI review failed: ${aiError.message}`;
       } else if (typeof aiError === 'string') {
-        errorMessage = aiError;
+        errorMessage = `AI review failed: ${aiError}`;
       } else {
-        try {
-          errorMessage = JSON.stringify(aiError);
-        } catch (e) {
-          // ignore stringify error if aiError itself is not stringifiable
-        }
+        errorMessage = "AI review failed with a non-standard error object.";
       }
-      console.error("AI Review Error for", applicationId, ":", aiError);
-      await setDoc(doc(db, "applications", applicationId), { 
-        aiReviewNotes: JSON.stringify({ error: "AI review failed", details: errorMessage })
-      }, { merge: true });
+      console.error("AI Review Error for", applicationId, ":", aiError); // Log the original error
+      
+      const aiReviewNotesContent = { error: "AI review failed", details: errorMessage };
+      try {
+        await setDoc(doc(db, "applications", applicationId), { 
+          aiReviewNotes: JSON.stringify(aiReviewNotesContent)
+        }, { merge: true });
+      } catch (dbError) {
+        console.error("Failed to save AI error notes to DB for", applicationId, ":", dbError);
+      }
     }
     
     const sheetData: SheetRowData = {
       applicationId,
-      submissionTimestamp: submissionTime.toISOString(),
+      submissionTimestamp: submissionTime.toISOString(), // Use client-generated timestamp for Sheets consistency
       personalDetails: validatedFields.data.personalDetails,
       academicHistory: validatedFields.data.academicHistory,
       parentGuardianInfo: validatedFields.data.parentGuardianInfo,
@@ -123,4 +138,3 @@ export async function submitApplication(
     return { success: false, message: "Gagal mengirim pendaftaran. Silakan coba lagi." };
   }
 }
-

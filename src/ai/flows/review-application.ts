@@ -12,8 +12,29 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+// NEW: Define a more specific schema for the form data part of the input
+const AIReviewFormDataSchema = z.object({
+  fullName: z.string().describe("Student's full name."),
+  nisn: z.string().optional().describe("Student's NISN (National Student Identification Number)."),
+  gender: z.string().describe("Student's gender."),
+  birthPlace: z.string().describe("Student's place of birth."),
+  birthDate: z.string().describe("Student's date of birth in ISO format."),
+  address: z.string().describe("Student's full address."),
+  phoneNumber: z.string().optional().describe("Student's phone number."),
+  previousSchool: z.string().describe("Student's previous school."),
+  graduationYear: z.number().describe("Student's graduation year from previous school."),
+  averageScore: z.number().optional().describe("Student's average score from last report card."),
+  fatherName: z.string().describe("Father's full name."),
+  fatherOccupation: z.string().optional().describe("Father's occupation."),
+  motherName: z.string().describe("Mother's full name."),
+  motherOccupation: z.string().optional().describe("Mother's occupation."),
+  guardianName: z.string().optional().describe("Guardian's full name (if applicable)."),
+  guardianOccupation: z.string().optional().describe("Guardian's occupation (if applicable)."),
+  parentPhoneNumber: z.string().describe("Parent/guardian's phone number."),
+});
+
 const ReviewApplicationInputSchema = z.object({
-  formData: z.record(z.any()).describe('The application form data as a JSON object. This will contain flattened personal details, academic history, and parent/guardian information.'),
+  formData: AIReviewFormDataSchema.describe('The application form data as a JSON object. This will contain flattened personal details, academic history, and parent/guardian information.'),
 });
 export type ReviewApplicationInput = z.infer<typeof ReviewApplicationInputSchema>;
 
@@ -74,4 +95,3 @@ const reviewApplicationFlow = ai.defineFlow(
     return output;
   }
 );
-
