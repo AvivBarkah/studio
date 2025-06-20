@@ -37,7 +37,7 @@ export async function submitApplication(
     validatedFields.error.errors.forEach(err => {
       const section = err.path[0] as keyof ApplicationFormData;
       const field = err.path[1] as string;
-      if (section && field && typeof section === 'string') { // ensure section is a string key
+      if (section && field && typeof section === 'string') { 
         if (!fieldErrors[section as keyof SubmitApplicationState['errors']]) {
              (fieldErrors[section as keyof SubmitApplicationState['errors']] as any) = {};
         }
@@ -64,10 +64,13 @@ export async function submitApplication(
   try {
     await setDoc(doc(db, "applications", applicationId), applicationDataForDb);
 
+    const { personalDetails, academicHistory, parentGuardianInfo } = validatedFields.data;
+    
     const formDataForAI = {
-      ...validatedFields.data.personalDetails,
-      ...validatedFields.data.academicHistory,
-      ...validatedFields.data.parentGuardianInfo,
+      ...personalDetails,
+      birthDate: personalDetails.birthDate.toISOString(), // Convert Date to ISO string
+      ...academicHistory,
+      ...parentGuardianInfo,
     };
     
     let aiReviewResult: ReviewApplicationOutput | null = null;
@@ -80,9 +83,21 @@ export async function submitApplication(
         aiReviewNotes: JSON.stringify(aiReviewResult)
       }, { merge: true });
     } catch (aiError) {
+      let errorMessage = "Unknown AI error";
+      if (aiError instanceof Error) {
+        errorMessage = aiError.message;
+      } else if (typeof aiError === 'string') {
+        errorMessage = aiError;
+      } else {
+        try {
+          errorMessage = JSON.stringify(aiError);
+        } catch (e) {
+          // ignore stringify error if aiError itself is not stringifiable
+        }
+      }
       console.error("AI Review Error for", applicationId, ":", aiError);
       await setDoc(doc(db, "applications", applicationId), { 
-        aiReviewNotes: JSON.stringify({ error: "AI review failed", details: (aiError as Error).message })
+        aiReviewNotes: JSON.stringify({ error: "AI review failed", details: errorMessage })
       }, { merge: true });
     }
     
@@ -108,3 +123,4 @@ export async function submitApplication(
     return { success: false, message: "Gagal mengirim pendaftaran. Silakan coba lagi." };
   }
 }
+
