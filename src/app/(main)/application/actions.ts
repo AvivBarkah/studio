@@ -1,10 +1,12 @@
+
 'use server';
 
 import { z } from 'zod';
 import { ApplicationFormSchema, type ApplicationFormData, type DocumentUpload } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
-import { reviewApplication } from '@/ai/flows/review-application'; // Assuming path is correct
+import { reviewApplication, type ReviewApplicationOutput } from '@/ai/flows/review-application';
+import { appendToSpreadsheet, type SheetRowData } from '@/services/google-sheets-service';
 
 interface SubmitApplicationState {
   success: boolean;
@@ -18,9 +20,8 @@ interface SubmitApplicationState {
   };
 }
 
-// Helper to generate a unique application ID
 function generateApplicationId(): string {
-  const prefix = "MG"; // Madrasah Gateway
+  const prefix = "MG";
   const year = new Date().getFullYear();
   const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
   return `${prefix}${year}${randomSuffix}`;
@@ -59,63 +60,65 @@ export async function submitApplication(
   }
 
   const applicationId = generateApplicationId();
+  const submissionTime = new Date(); // For consistent timestamp across Firestore and Sheets
+
   const applicationDataForDb = {
     ...validatedFields.data,
     applicationId,
     status: "SUBMITTED" as const,
-    submissionDate: serverTimestamp(),
+    submissionDate: serverTimestamp(), // Firestore server timestamp
     documents: documents.map(doc => ({ name: doc.name, type: doc.type, size: doc.size })),
   };
 
   try {
-    // Store application in Firestore
     await setDoc(doc(db, "applications", applicationId), applicationDataForDb);
 
-    // Prepare data for AI review
     const formDataForAI = {
-      // Pass relevant parts of the form for AI review
-      // This should match what the AI expects as `formData`
       ...validatedFields.data.personalDetails,
       ...validatedFields.data.academicHistory,
       ...validatedFields.data.parentGuardianInfo,
-      // You might want to flatten or select specific fields for the AI
     };
     const documentDataUrisForAI = documents.map(d => d.dataUrl).filter(Boolean) as string[];
 
-    // Call AI flow
-    // Note: The AI flow's output structure might need to be handled (e.g., storing review notes)
-    // For now, we'll just log the result or store a summary.
-    // The prompt says "advises a human administrator", so the AI result primarily goes to admin view.
-    // We can store a summary note in the application document.
-    const aiReviewResult = await reviewApplication({
-      formData: formDataForAI,
-      documentDataUris: documentDataUrisForAI,
-    });
-
-    // Example: Storing a summary of AI review (actual structure depends on aiReviewResult)
-    // This part would typically update the document or store AI notes for admin.
-    // For simplicity, we'll assume aiReviewResult has a 'summary' or 'notes' field.
-    if (aiReviewResult) {
-      // This is a placeholder for how you might update the document with AI feedback.
-      // In a real scenario, you'd update the Firestore document with these notes.
-      // For example:
-      // await updateDoc(doc(db, "applications", applicationId), {
-      //   aiReviewNotes: aiReviewResult.summary || "AI review completed.",
-      //   status: aiReviewResult.needsAttention ? "ADDITIONAL_INFO_REQUIRED" : "UNDER_REVIEW"
-      // });
-      console.log("AI Review Result:", aiReviewResult);
-       // For now, just add a note that AI review happened.
-       // A real app would integrate this more deeply, possibly changing status.
-       await setDoc(doc(db, "applications", applicationId), { 
-         aiReviewNotes: JSON.stringify(aiReviewResult) // Storing full AI result as string for now
-       }, { merge: true });
+    let aiReviewResult: ReviewApplicationOutput | null = null;
+    try {
+      aiReviewResult = await reviewApplication({
+        formData: formDataForAI,
+        documentDataUris: documentDataUrisForAI,
+      });
+      console.log("AI Review Result for", applicationId, ":", aiReviewResult);
+      await setDoc(doc(db, "applications", applicationId), { 
+        aiReviewNotes: JSON.stringify(aiReviewResult)
+      }, { merge: true });
+    } catch (aiError) {
+      console.error("AI Review Error for", applicationId, ":", aiError);
+      // Continue without AI review if it fails
+      await setDoc(doc(db, "applications", applicationId), { 
+        aiReviewNotes: JSON.stringify({ error: "AI review failed", details: (aiError as Error).message })
+      }, { merge: true });
     }
+    
+    // Prepare data for Google Sheets
+    const sheetData: SheetRowData = {
+      applicationId,
+      submissionTimestamp: submissionTime.toISOString(),
+      personalDetails: validatedFields.data.personalDetails,
+      academicHistory: validatedFields.data.academicHistory,
+      parentGuardianInfo: validatedFields.data.parentGuardianInfo,
+      applicationStatus: "SUBMITTED",
+      aiReviewSummary: aiReviewResult?.summary,
+      aiNeedsHumanAttention: aiReviewResult?.needsHumanAttention,
+    };
+
+    // Asynchronously append to Google Sheets, don't block submission if this fails
+    appendToSpreadsheet(sheetData).catch(sheetError => {
+      console.error("Error appending to Google Sheets (non-blocking):", sheetError);
+    });
     
     return { success: true, applicationId, message: "Pendaftaran berhasil!" };
 
   } catch (error) {
-    console.error("Error submitting application:", error);
-    // TODO: More specific error handling (e.g., AI flow error vs. Firestore error)
+    console.error("Error submitting application:", applicationId, error);
     return { success: false, message: "Gagal mengirim pendaftaran. Silakan coba lagi." };
   }
 }
