@@ -37,7 +37,7 @@ export async function submitApplication(
     validatedFields.error.errors.forEach(err => {
       const section = err.path[0] as keyof ApplicationFormData;
       const field = err.path[1] as string;
-      if (section && field && typeof section === 'string') { 
+      if (section && field && typeof section === 'string') {
         if (!fieldErrors[section as keyof SubmitApplicationState['errors']]) {
              (fieldErrors[section as keyof SubmitApplicationState['errors']] as any) = {};
         }
@@ -52,31 +52,31 @@ export async function submitApplication(
   }
 
   const applicationId = generateApplicationId();
-  const submissionTime = new Date(); 
+  const submissionTime = new Date();
 
   const applicationDataForDb = {
     ...validatedFields.data,
     applicationId,
     status: "SUBMITTED" as const,
-    submissionDate: serverTimestamp(), // Firestore server timestamp for DB
+    submissionDate: serverTimestamp(),
   };
 
   try {
     await setDoc(doc(db, "applications", applicationId), applicationDataForDb);
 
     const { personalDetails, academicHistory, parentGuardianInfo } = validatedFields.data;
-    
+
     const formDataForAI: ReviewApplicationInput['formData'] = {
       fullName: personalDetails.fullName,
       nisn: personalDetails.nisn || undefined,
       gender: personalDetails.gender,
       birthPlace: personalDetails.birthPlace,
-      birthDate: personalDetails.birthDate.toISOString(),
+      birthDate: personalDetails.birthDate.toISOString(), // Ensure birthDate is ISO string
       address: personalDetails.address,
       phoneNumber: personalDetails.phoneNumber || undefined,
       previousSchool: academicHistory.previousSchool,
       graduationYear: academicHistory.graduationYear,
-      averageScore: academicHistory.averageScore, 
+      averageScore: academicHistory.averageScore,
       fatherName: parentGuardianInfo.fatherName,
       fatherOccupation: parentGuardianInfo.fatherOccupation || undefined,
       motherName: parentGuardianInfo.motherName,
@@ -85,18 +85,28 @@ export async function submitApplication(
       guardianOccupation: parentGuardianInfo.guardianOccupation || undefined,
       parentPhoneNumber: parentGuardianInfo.parentPhoneNumber,
     };
-    
-    let aiReviewResult: ReviewApplicationOutput | null = null;
+
+    let aiOutcomeForSheet: { summary?: string; needsHumanAttention?: boolean; errorDetails?: string } = {
+        summary: "AI Review Not Performed", // Default if something unexpected happens before assignment
+        needsHumanAttention: true,
+    };
+
     try {
-      aiReviewResult = await reviewApplication({
+      const reviewResult = await reviewApplication({
         formData: formDataForAI,
       });
-      console.log("AI Review Result for", applicationId, ":", aiReviewResult);
-      await setDoc(doc(db, "applications", applicationId), { 
-        aiReviewNotes: JSON.stringify(aiReviewResult)
+      console.log("AI Review Result for", applicationId, ":", reviewResult);
+      await setDoc(doc(db, "applications", applicationId), {
+        aiReviewNotes: JSON.stringify(reviewResult)
       }, { merge: true });
+
+      aiOutcomeForSheet = {
+        summary: reviewResult.summary,
+        needsHumanAttention: reviewResult.needsHumanAttention,
+      };
+
     } catch (aiError) {
-      let errorMessage = "AI review encountered an issue."; // Default message
+      let errorMessage = "AI review encountered an issue.";
       if (aiError instanceof Error) {
         errorMessage = `AI review failed: ${aiError.message}`;
       } else if (typeof aiError === 'string') {
@@ -104,37 +114,47 @@ export async function submitApplication(
       } else {
         errorMessage = "AI review failed with a non-standard error object.";
       }
-      console.error("AI Review Error for", applicationId, ":", aiError); // Log the original error
-      
+      console.error("AI Review Error for", applicationId, ":", aiError);
+
       const aiReviewNotesContent = { error: "AI review failed", details: errorMessage };
       try {
-        await setDoc(doc(db, "applications", applicationId), { 
+        await setDoc(doc(db, "applications", applicationId), {
           aiReviewNotes: JSON.stringify(aiReviewNotesContent)
         }, { merge: true });
       } catch (dbError) {
         console.error("Failed to save AI error notes to DB for", applicationId, ":", dbError);
       }
+
+      aiOutcomeForSheet = {
+        summary: "AI Review Failed",
+        needsHumanAttention: true,
+        errorDetails: errorMessage,
+      };
     }
-    
+
     const sheetData: SheetRowData = {
       applicationId,
-      submissionTimestamp: submissionTime.toISOString(), // Use client-generated timestamp for Sheets consistency
+      submissionTimestamp: submissionTime.toISOString(),
       personalDetails: validatedFields.data.personalDetails,
       academicHistory: validatedFields.data.academicHistory,
       parentGuardianInfo: validatedFields.data.parentGuardianInfo,
       applicationStatus: "SUBMITTED",
-      aiReviewSummary: aiReviewResult?.summary,
-      aiNeedsHumanAttention: aiReviewResult?.needsHumanAttention,
+      aiReviewSummary: aiOutcomeForSheet.summary,
+      aiNeedsHumanAttention: aiOutcomeForSheet.needsHumanAttention,
+      // If you add an 'aiErrorDetails' column to your SheetRowData and Sheet:
+      // aiErrorDetails: aiOutcomeForSheet.errorDetails,
     };
 
     appendToSpreadsheet(sheetData).catch(sheetError => {
       console.error("Error appending to Google Sheets (non-blocking):", sheetError);
     });
-    
+
     return { success: true, applicationId, message: "Pendaftaran berhasil!" };
 
   } catch (error) {
     console.error("Error submitting application:", applicationId, error);
-    return { success: false, message: "Gagal mengirim pendaftaran. Silakan coba lagi." };
+    // Check if error is an instance of Error to safely access message property
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return { success: false, message: `Gagal mengirim pendaftaran: ${errorMessage}. Silakan coba lagi.` };
   }
 }
