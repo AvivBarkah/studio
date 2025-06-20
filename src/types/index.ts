@@ -36,17 +36,9 @@ export const ApplicationFormSchema = z.object({
   personalDetails: PersonalDetailsSchema,
   academicHistory: AcademicHistorySchema,
   parentGuardianInfo: ParentGuardianInfoSchema,
-  // documents are handled separately for upload UI, but names/types might be stored
 });
 
 export type ApplicationFormData = z.infer<typeof ApplicationFormSchema>;
-
-export interface DocumentUpload {
-  name: string;
-  type: string;
-  size: number;
-  dataUrl?: string; // For AI processing, not stored in Firestore ideally
-}
 
 export type ApplicationStatus = "SUBMITTED" | "UNDER_REVIEW" | "ADDITIONAL_INFO_REQUIRED" | "ACCEPTED" | "REJECTED" | "UNKNOWN";
 
@@ -54,7 +46,6 @@ export interface ApplicationData extends ApplicationFormData {
   applicationId: string;
   status: ApplicationStatus;
   submissionDate: Date;
-  documents: { name: string; type: string; size: number }[];
   aiReviewNotes?: string;
 }
 

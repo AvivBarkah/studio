@@ -2,7 +2,7 @@
 'use server';
 
 import { z } from 'zod';
-import { ApplicationFormSchema, type ApplicationFormData, type DocumentUpload } from '@/types';
+import { ApplicationFormSchema, type ApplicationFormData } from '@/types';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { reviewApplication, type ReviewApplicationOutput } from '@/ai/flows/review-application';
@@ -16,7 +16,6 @@ interface SubmitApplicationState {
     personalDetails?: Partial<Record<keyof ApplicationFormData['personalDetails'], string>>;
     academicHistory?: Partial<Record<keyof ApplicationFormData['academicHistory'], string>>;
     parentGuardianInfo?: Partial<Record<keyof ApplicationFormData['parentGuardianInfo'], string>>;
-    documents?: string;
   };
 }
 
@@ -28,8 +27,7 @@ function generateApplicationId(): string {
 }
 
 export async function submitApplication(
-  rawFormData: ApplicationFormData,
-  documents: DocumentUpload[]
+  rawFormData: ApplicationFormData
 ): Promise<SubmitApplicationState> {
 
   const validatedFields = ApplicationFormSchema.safeParse(rawFormData);
@@ -39,9 +37,11 @@ export async function submitApplication(
     validatedFields.error.errors.forEach(err => {
       const section = err.path[0] as keyof ApplicationFormData;
       const field = err.path[1] as string;
-      if (section && field) {
-        if (!fieldErrors[section]) fieldErrors[section] = {};
-        (fieldErrors[section] as any)[field] = err.message;
+      if (section && field && typeof section === 'string') { // ensure section is a string key
+        if (!fieldErrors[section as keyof SubmitApplicationState['errors']]) {
+             (fieldErrors[section as keyof SubmitApplicationState['errors']] as any) = {};
+        }
+        ((fieldErrors[section as keyof SubmitApplicationState['errors']] as any)!)[field] = err.message;
       }
     });
     return {
@@ -51,23 +51,14 @@ export async function submitApplication(
     };
   }
 
-  if (!documents || documents.length === 0) {
-    return {
-      success: false,
-      message: "Minimal satu dokumen harus diunggah.",
-      errors: { documents: "Minimal satu dokumen harus diunggah." }
-    };
-  }
-
   const applicationId = generateApplicationId();
-  const submissionTime = new Date(); // For consistent timestamp across Firestore and Sheets
+  const submissionTime = new Date(); 
 
   const applicationDataForDb = {
     ...validatedFields.data,
     applicationId,
     status: "SUBMITTED" as const,
-    submissionDate: serverTimestamp(), // Firestore server timestamp
-    documents: documents.map(doc => ({ name: doc.name, type: doc.type, size: doc.size })),
+    submissionDate: serverTimestamp(),
   };
 
   try {
@@ -78,13 +69,11 @@ export async function submitApplication(
       ...validatedFields.data.academicHistory,
       ...validatedFields.data.parentGuardianInfo,
     };
-    const documentDataUrisForAI = documents.map(d => d.dataUrl).filter(Boolean) as string[];
-
+    
     let aiReviewResult: ReviewApplicationOutput | null = null;
     try {
       aiReviewResult = await reviewApplication({
         formData: formDataForAI,
-        documentDataUris: documentDataUrisForAI,
       });
       console.log("AI Review Result for", applicationId, ":", aiReviewResult);
       await setDoc(doc(db, "applications", applicationId), { 
@@ -92,13 +81,11 @@ export async function submitApplication(
       }, { merge: true });
     } catch (aiError) {
       console.error("AI Review Error for", applicationId, ":", aiError);
-      // Continue without AI review if it fails
       await setDoc(doc(db, "applications", applicationId), { 
         aiReviewNotes: JSON.stringify({ error: "AI review failed", details: (aiError as Error).message })
       }, { merge: true });
     }
     
-    // Prepare data for Google Sheets
     const sheetData: SheetRowData = {
       applicationId,
       submissionTimestamp: submissionTime.toISOString(),
@@ -110,7 +97,6 @@ export async function submitApplication(
       aiNeedsHumanAttention: aiReviewResult?.needsHumanAttention,
     };
 
-    // Asynchronously append to Google Sheets, don't block submission if this fails
     appendToSpreadsheet(sheetData).catch(sheetError => {
       console.error("Error appending to Google Sheets (non-blocking):", sheetError);
     });

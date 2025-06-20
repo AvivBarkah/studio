@@ -16,27 +16,38 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from '@/hooks/use-toast';
-import { ApplicationFormSchema, PersonalDetailsSchema, AcademicHistorySchema, ParentGuardianInfoSchema, type ApplicationFormData, type DocumentUpload } from '@/types';
+import { ApplicationFormSchema, PersonalDetailsSchema, AcademicHistorySchema, ParentGuardianInfoSchema, type ApplicationFormData } from '@/types';
 import { submitApplication } from '@/app/(main)/application/actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
-import { CalendarIcon, User, BookOpen, Users, UploadCloud, FileText, Trash2, Loader2, ArrowRight, ArrowLeft } from 'lucide-react';
-import { MAX_FILE_SIZE, ACCEPTED_FILE_TYPES } from '@/lib/constants';
+import { CalendarIcon, User, BookOpen, Users, Loader2, ArrowRight, ArrowLeft, Send } from 'lucide-react';
 
 const steps = [
-  { id: 'personal', name: 'Data Pribadi', icon: User, schema: PersonalDetailsSchema },
-  { id: 'academic', name: 'Riwayat Akademik', icon: BookOpen, schema: AcademicHistorySchema },
-  { id: 'parent', name: 'Data Orang Tua/Wali', icon: Users, schema: ParentGuardianInfoSchema },
-  { id: 'documents', name: 'Unggah Dokumen', icon: UploadCloud },
+  { id: 'personalDetails', name: 'Data Pribadi', icon: User, schema: PersonalDetailsSchema },
+  { id: 'academicHistory', name: 'Riwayat Akademik', icon: BookOpen, schema: AcademicHistorySchema },
+  { id: 'parentGuardianInfo', name: 'Data Orang Tua/Wali', icon: Users, schema: ParentGuardianInfoSchema },
 ];
 
 function PersonalDetailsForm() {
   const { control, formState: { errors } } = useFormContext<ApplicationFormData>();
+  const [birthDate, setBirthDate] = useState<Date | undefined>(undefined);
+
+  useEffect(() => {
+    // Initialize birthDate on client to avoid hydration mismatch for Calendar's disabled prop
+    // This ensures new Date() is called client-side
+    // Default to undefined if not set in form, or use form value
+    const currentFormValue = control._getWatch("personalDetails.birthDate");
+    if (currentFormValue instanceof Date) {
+        setBirthDate(currentFormValue);
+    }
+  }, [control]);
+
+
   return (
     <div className="space-y-4">
-      <FormFieldRHF name="personalDetails.fullName" label="Nama Lengkap (Sesuai Ijazah)" control={control} render={({ field }) => <Input placeholder="Nama Lengkap" {...field} />} />
-      <FormFieldRHF name="personalDetails.nisn" label="NISN (Nomor Induk Siswa Nasional)" control={control} render={({ field }) => <Input placeholder="NISN (10 digit)" {...field} />} />
+      <FormFieldRHF name="personalDetails.fullName" label="Nama Lengkap (Sesuai Ijazah)" control={control} render={({ field }) => <Input placeholder="Nama Lengkap" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="personalDetails.nisn" label="NISN (Nomor Induk Siswa Nasional)" control={control} render={({ field }) => <Input placeholder="NISN (10 digit)" {...field} value={field.value || ''} />} />
       <FormFieldRHF
         name="personalDetails.gender"
         label="Jenis Kelamin"
@@ -52,7 +63,7 @@ function PersonalDetailsForm() {
         )}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <FormFieldRHF name="personalDetails.birthPlace" label="Tempat Lahir" control={control} render={({ field }) => <Input placeholder="Tempat Lahir" {...field} />} />
+        <FormFieldRHF name="personalDetails.birthPlace" label="Tempat Lahir" control={control} render={({ field }) => <Input placeholder="Tempat Lahir" {...field} value={field.value || ''} />} />
         <FormFieldRHF
           name="personalDetails.birthDate"
           label="Tanggal Lahir"
@@ -69,32 +80,56 @@ function PersonalDetailsForm() {
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
-                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus disabled={(date) => date > new Date() || date < new Date("1900-01-01")} />
+                <Calendar 
+                    mode="single" 
+                    selected={field.value} 
+                    onSelect={(date) => {
+                        field.onChange(date);
+                        setBirthDate(date);
+                    }} 
+                    initialFocus 
+                    disabled={(date) => {
+                        const today = new Date();
+                        const minDate = new Date("1900-01-01");
+                        today.setHours(0,0,0,0); // normalize today to start of day
+                        return date > today || date < minDate;
+                    }}
+                />
               </PopoverContent>
             </Popover>
           )}
         />
       </div>
-      <FormFieldRHF name="personalDetails.address" label="Alamat Lengkap (Sesuai KK)" control={control} render={({ field }) => <Input placeholder="Alamat Lengkap" {...field} />} />
-      <FormFieldRHF name="personalDetails.phoneNumber" label="Nomor Telepon Siswa (Aktif WhatsApp)" control={control} render={({ field }) => <Input type="tel" placeholder="08xxxxxxxxxx" {...field} />} />
+      <FormFieldRHF name="personalDetails.address" label="Alamat Lengkap (Sesuai KK)" control={control} render={({ field }) => <Input placeholder="Alamat Lengkap" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="personalDetails.phoneNumber" label="Nomor Telepon Siswa (Aktif WhatsApp)" control={control} render={({ field }) => <Input type="tel" placeholder="08xxxxxxxxxx" {...field} value={field.value || ''} />} />
     </div>
   );
 }
 
 function AcademicHistoryForm() {
-  const { control, formState: { errors } } = useFormContext<ApplicationFormData>();
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 1999 }, (_, i) => currentYear - i + 1);
+  const { control } = useFormContext<ApplicationFormData>();
+  const [years, setYears] = useState<number[]>([]);
+
+  useEffect(() => {
+    const currentYear = new Date().getFullYear();
+    const generatedYears = Array.from({ length: currentYear - 1999 + 1 }, (_, i) => currentYear - i +1);
+    setYears(generatedYears.sort((a,b) => b-a).slice(0, currentYear - 1999 +1)); // Ensure correct range and sort
+  }, []);
+
 
   return (
     <div className="space-y-4">
-      <FormFieldRHF name="academicHistory.previousSchool" label="Asal Sekolah (SMP/MTs Sederajat)" control={control} render={({ field }) => <Input placeholder="Nama Sekolah Sebelumnya" {...field} />} />
+      <FormFieldRHF name="academicHistory.previousSchool" label="Asal Sekolah (SMP/MTs Sederajat)" control={control} render={({ field }) => <Input placeholder="Nama Sekolah Sebelumnya" {...field} value={field.value || ''} />} />
       <FormFieldRHF
         name="academicHistory.graduationYear"
         label="Tahun Lulus"
         control={control}
         render={({ field }) => (
-          <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={field.value?.toString()}>
+          <Select 
+            onValueChange={(value) => field.onChange(parseInt(value))} 
+            defaultValue={field.value?.toString()}
+            value={field.value?.toString()}
+          >
             <SelectTrigger><SelectValue placeholder="Pilih Tahun Lulus" /></SelectTrigger>
             <SelectContent>
               {years.map(year => <SelectItem key={year} value={year.toString()}>{year}</SelectItem>)}
@@ -102,105 +137,45 @@ function AcademicHistoryForm() {
           </Select>
         )}
       />
-      <FormFieldRHF name="academicHistory.averageScore" label="Nilai Rata-rata Rapor Terakhir (Opsional)" control={control} render={({ field }) => <Input type="number" placeholder="Misal: 85.50" {...field} onChange={e => field.onChange(parseFloat(e.target.value))} />} />
+      <FormFieldRHF 
+        name="academicHistory.averageScore" 
+        label="Nilai Rata-rata Rapor Terakhir (Opsional)" 
+        control={control} 
+        render={({ field }) => (
+            <Input 
+                type="number" 
+                placeholder="Misal: 85.50" 
+                {...field} 
+                value={field.value === undefined || field.value === null ? '' : field.value}
+                onChange={e => {
+                    const val = e.target.value;
+                    if (val === '') {
+                        field.onChange(undefined); // Allow clearing the optional field
+                    } else {
+                        const numVal = parseFloat(val);
+                        if (!isNaN(numVal)) {
+                            field.onChange(numVal);
+                        }
+                    }
+                }} 
+            />
+        )} 
+      />
     </div>
   );
 }
 
 function ParentGuardianInfoForm() {
-  const { control, formState: { errors } } = useFormContext<ApplicationFormData>();
+  const { control } = useFormContext<ApplicationFormData>();
   return (
     <div className="space-y-4">
-      <FormFieldRHF name="parentGuardianInfo.fatherName" label="Nama Ayah" control={control} render={({ field }) => <Input placeholder="Nama Ayah" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.fatherOccupation" label="Pekerjaan Ayah (Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Ayah" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.motherName" label="Nama Ibu" control={control} render={({ field }) => <Input placeholder="Nama Ibu" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.motherOccupation" label="Pekerjaan Ibu (Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Ibu" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.guardianName" label="Nama Wali (Jika ada, Opsional)" control={control} render={({ field }) => <Input placeholder="Nama Wali" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.guardianOccupation" label="Pekerjaan Wali (Jika ada, Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Wali" {...field} />} />
-      <FormFieldRHF name="parentGuardianInfo.parentPhoneNumber" label="Nomor Telepon Orang Tua/Wali (Aktif WhatsApp)" control={control} render={({ field }) => <Input type="tel" placeholder="08xxxxxxxxxx" {...field} />} />
-    </div>
-  );
-}
-
-function DocumentUploadForm({ documents, setDocuments }: { documents: DocumentUpload[], setDocuments: React.Dispatch<React.SetStateAction<DocumentUpload[]>> }) {
-  const { toast } = useToast();
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      const filesArray = Array.from(event.target.files);
-      const newUploads: DocumentUpload[] = [];
-      const filePromises: Promise<void>[] = [];
-
-      filesArray.forEach(file => {
-        if (file.size > MAX_FILE_SIZE) {
-          toast({ title: "File Terlalu Besar", description: `File "${file.name}" melebihi batas ${MAX_FILE_SIZE / (1024 * 1024)}MB.`, variant: "destructive" });
-          return;
-        }
-        if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-          toast({ title: "Format File Tidak Didukung", description: `Format file "${file.name}" tidak didukung.`, variant: "destructive" });
-          return;
-        }
-
-        const promise = new Promise<void>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            newUploads.push({
-              name: file.name,
-              type: file.type,
-              size: file.size,
-              dataUrl: reader.result as string,
-            });
-            resolve();
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        filePromises.push(promise);
-      });
-      
-      Promise.all(filePromises).then(() => {
-         setDocuments(prev => [...prev, ...newUploads]);
-      }).catch(error => {
-        console.error("Error reading files:", error);
-        toast({ title: "Error Membaca File", description: "Terjadi kesalahan saat memproses file.", variant: "destructive" });
-      });
-      event.target.value = ""; // Reset file input
-    }
-  };
-
-  const removeFile = (fileName: string) => {
-    setDocuments(prev => prev.filter(doc => doc.name !== fileName));
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="p-4 border-dashed border-2 border-primary/50 rounded-lg text-center bg-primary/5 hover:bg-primary/10 transition-colors">
-        <Label htmlFor="file-upload" className="cursor-pointer">
-          <UploadCloud className="mx-auto h-12 w-12 text-primary mb-2" />
-          <p className="font-semibold text-primary">Klik untuk memilih file atau tarik file ke sini</p>
-          <p className="text-xs text-muted-foreground">Format: PDF, JPG, PNG. Maksimal 5MB per file.</p>
-        </Label>
-        <Input id="file-upload" type="file" multiple onChange={handleFileChange} className="hidden" accept={ACCEPTED_FILE_TYPES.join(",")} />
-      </div>
-      {documents.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="font-medium">Dokumen Terunggah:</h4>
-          <ul className="space-y-2">
-            {documents.map((doc, index) => (
-              <li key={index} className="flex items-center justify-between p-2 border rounded-md bg-card">
-                <div className="flex items-center space-x-2">
-                  <FileText className="h-5 w-5 text-primary" />
-                  <span className="text-sm">{doc.name} ({(doc.size / (1024)).toFixed(1)} KB)</span>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => removeFile(doc.name)} aria-label={`Hapus ${doc.name}`}>
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-       {documents.length === 0 && <p className="text-sm text-destructive text-center mt-2">Minimal unggah satu dokumen (misal: Akta Kelahiran, Kartu Keluarga, Ijazah).</p>}
+      <FormFieldRHF name="parentGuardianInfo.fatherName" label="Nama Ayah" control={control} render={({ field }) => <Input placeholder="Nama Ayah" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.fatherOccupation" label="Pekerjaan Ayah (Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Ayah" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.motherName" label="Nama Ibu" control={control} render={({ field }) => <Input placeholder="Nama Ibu" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.motherOccupation" label="Pekerjaan Ibu (Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Ibu" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.guardianName" label="Nama Wali (Jika ada, Opsional)" control={control} render={({ field }) => <Input placeholder="Nama Wali" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.guardianOccupation" label="Pekerjaan Wali (Jika ada, Opsional)" control={control} render={({ field }) => <Input placeholder="Pekerjaan Wali" {...field} value={field.value || ''} />} />
+      <FormFieldRHF name="parentGuardianInfo.parentPhoneNumber" label="Nomor Telepon Orang Tua/Wali (Aktif WhatsApp)" control={control} render={({ field }) => <Input type="tel" placeholder="08xxxxxxxxxx" {...field} value={field.value || ''} />} />
     </div>
   );
 }
@@ -208,15 +183,20 @@ function DocumentUploadForm({ documents, setDocuments }: { documents: DocumentUp
 function FormFieldRHF<T extends ApplicationFormData>({ name, label, control, render }: { name: any, label: string, control: any, render: (props: { field: any }) => JSX.Element }) {
   const { formState: { errors } } = useFormContext<T>();
   const errorPath = name.split('.');
-  let error = errors;
+  let error = errors as any; // Type assertion
   for (const path of errorPath) {
     error = error?.[path];
+    if (!error) break;
   }
 
   return (
     <div className="space-y-1">
       <Label htmlFor={name} className={error ? "text-destructive" : ""}>{label}</Label>
-      <Controller name={name} control={control} render={render} />
+      <Controller 
+        name={name} 
+        control={control} 
+        render={render} 
+      />
       {error && <p className="text-sm text-destructive mt-1">{error.message}</p>}
     </div>
   );
@@ -224,7 +204,6 @@ function FormFieldRHF<T extends ApplicationFormData>({ name, label, control, ren
 
 export function ApplicationForm() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [documents, setDocuments] = useState<DocumentUpload[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -235,16 +214,16 @@ export function ApplicationForm() {
       personalDetails: {
         fullName: '',
         nisn: '',
-        // gender is a select, handled by its default
+        gender: undefined, // Let Select component handle placeholder
         birthPlace: '',
-        // birthDate is a calendar, handled by its default
+        birthDate: undefined, // Let Calendar component handle placeholder
         address: '',
         phoneNumber: '',
       },
       academicHistory: {
         previousSchool: '',
-        // graduationYear is a select
-        averageScore: '' as any, // Initialize as empty string for controlled input, parseFloat will handle conversion
+        graduationYear: undefined, // Let Select component handle placeholder
+        averageScore: undefined,
       },
       parentGuardianInfo: {
         fatherName: '',
@@ -258,15 +237,12 @@ export function ApplicationForm() {
     },
   });
 
-  const { handleSubmit, trigger, getValues } = methods;
+  const { handleSubmit, trigger } = methods;
 
   const handleNext = async () => {
     let isValid = true;
     if (steps[currentStep].schema) {
       isValid = await trigger(steps[currentStep].id as keyof ApplicationFormData);
-    } else if (steps[currentStep].id === 'documents' && documents.length === 0) {
-       toast({ title: "Dokumen Kosong", description: "Harap unggah minimal satu dokumen.", variant: "destructive" });
-       isValid = false;
     }
 
     if (isValid) {
@@ -284,14 +260,8 @@ export function ApplicationForm() {
 
   const onSubmit = async (data: ApplicationFormData) => {
     setIsSubmitting(true);
-    if (documents.length === 0) {
-        toast({ title: "Dokumen Kosong", description: "Harap unggah minimal satu dokumen sebelum submit.", variant: "destructive" });
-        setIsSubmitting(false);
-        setCurrentStep(steps.findIndex(s => s.id === 'documents')); // Go to document step
-        return;
-    }
     
-    const result = await submitApplication(data, documents);
+    const result = await submitApplication(data);
     setIsSubmitting(false);
 
     if (result.success && result.applicationId) {
@@ -299,9 +269,14 @@ export function ApplicationForm() {
       router.push(`/application/success/${result.applicationId}`);
     } else {
       toast({ title: "Pendaftaran Gagal", description: result.message, variant: "destructive" });
-      // Handle showing specific field errors from result.errors if necessary
       if (result.errors) {
-        // This part can be enhanced to set form errors using methods.setError
+        Object.entries(result.errors).forEach(([section, sectionErrors]) => {
+          if (sectionErrors) {
+            Object.entries(sectionErrors).forEach(([field, message]) => {
+              methods.setError(`${section}.${field}` as any, { type: 'server', message });
+            });
+          }
+        });
         console.error("Validation errors from server:", result.errors);
       }
     }
@@ -349,7 +324,6 @@ export function ApplicationForm() {
             {currentStep === 0 && <PersonalDetailsForm />}
             {currentStep === 1 && <AcademicHistoryForm />}
             {currentStep === 2 && <ParentGuardianInfoForm />}
-            {currentStep === 3 && <DocumentUploadForm documents={documents} setDocuments={setDocuments} />}
           </CardContent>
 
           <CardFooter className="flex justify-between border-t pt-6">
@@ -361,8 +335,8 @@ export function ApplicationForm() {
                 Selanjutnya <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button type="submit" disabled={isSubmitting || documents.length === 0} className="btn-transition bg-primary hover:bg-primary/90">
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+              <Button type="submit" disabled={isSubmitting} className="btn-transition bg-primary hover:bg-primary/90">
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                 Kirim Pendaftaran
               </Button>
             )}

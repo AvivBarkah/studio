@@ -11,7 +11,7 @@ const faqs = [
   {
     question: "Apa saja persyaratan pendaftaran?",
     answer:
-      "Persyaratan umum meliputi fotokopi akta kelahiran, kartu keluarga, ijazah terakhir (jika ada), dan pas foto. Detail persyaratan dapat dilihat pada halaman informasi pendaftaran atau brosur kami.",
+      "Persyaratan umum meliputi pengisian formulir dengan data yang valid seperti data diri, riwayat pendidikan, dan informasi orang tua/wali. Detail persyaratan dapat dilihat pada halaman informasi pendaftaran atau brosur kami.",
   },
   {
     question: "Kapan periode pendaftaran dibuka dan ditutup?",
@@ -33,10 +33,6 @@ const faqs = [
     answer:
       "Informasi mengenai biaya pendaftaran dan rincian biaya pendidikan dapat diperoleh langsung dari panitia PPDB atau melalui brosur resmi yang tersedia.",
   },
-  {
-    question: "Dokumen apa saja yang perlu diunggah?",
-    answer: "Anda perlu mengunggah scan Akta Kelahiran, Kartu Keluarga, Ijazah/SKL terakhir, dan Pas Foto berwarna ukuran 3x4. Pastikan file dalam format PDF atau JPG/PNG dengan ukuran maksimal 2MB per file."
-  }
 ];
 
 export default function FaqPage() {
