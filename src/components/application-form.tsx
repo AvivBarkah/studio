@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -231,9 +232,29 @@ export function ApplicationForm() {
   const methods = useForm<ApplicationFormData>({
     resolver: zodResolver(ApplicationFormSchema),
     defaultValues: {
-      personalDetails: {},
-      academicHistory: {},
-      parentGuardianInfo: {},
+      personalDetails: {
+        fullName: '',
+        nisn: '',
+        // gender is a select, handled by its default
+        birthPlace: '',
+        // birthDate is a calendar, handled by its default
+        address: '',
+        phoneNumber: '',
+      },
+      academicHistory: {
+        previousSchool: '',
+        // graduationYear is a select
+        averageScore: '' as any, // Initialize as empty string for controlled input, parseFloat will handle conversion
+      },
+      parentGuardianInfo: {
+        fatherName: '',
+        fatherOccupation: '',
+        motherName: '',
+        motherOccupation: '',
+        guardianName: '',
+        guardianOccupation: '',
+        parentPhoneNumber: '',
+      },
     },
   });
 
