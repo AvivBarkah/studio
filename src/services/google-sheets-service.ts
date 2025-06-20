@@ -23,23 +23,37 @@ const SHEET_NAME = process.env.SHEET_NAME;
 const GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING;
 
 async function getAuth() {
+  console.log("Attempting to get Google Sheets authentication...");
   if (!GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING) {
+    console.error("GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING is not set in environment variables.");
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING is not set in environment variables. Please provide the content of your service account JSON key.");
   }
+  
+  let credentials;
   try {
-    const credentials = JSON.parse(GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING);
-    if (!credentials.client_email || !credentials.private_key) {
-      throw new Error("Service account credentials JSON is missing client_email or private_key.");
-    }
+    credentials = JSON.parse(GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING);
+    console.log("Successfully parsed GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING.");
+  } catch (e: any) {
+    console.error("Error parsing GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING:", e.message);
+    throw new Error(`Failed to parse service account credentials. Ensure it's a valid JSON string. Error: ${e.message}`);
+  }
+
+  if (!credentials.client_email || !credentials.private_key) {
+    console.error("Service account credentials JSON is missing client_email or private_key.");
+    throw new Error("Service account credentials JSON is missing client_email or private_key.");
+  }
+
+  try {
     const auth = new JWT({
       email: credentials.client_email,
       key: credentials.private_key,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
+    console.log("Google Sheets JWT auth object created successfully.");
     return auth;
   } catch (e: any) {
-    console.error("Error parsing GOOGLE_APPLICATION_CREDENTIALS_JSON_STRING:", e.message);
-    throw new Error("Failed to parse service account credentials. Ensure it's a valid JSON string.");
+    console.error("Error creating JWT auth object:", e.message);
+    throw new Error(`Failed to create JWT auth object. Error: ${e.message}`);
   }
 }
 
@@ -78,14 +92,17 @@ function mapDataToRow(data: SheetRowData): any[] {
 }
 
 export async function appendToSpreadsheet(data: SheetRowData): Promise<void> {
+  console.log(`Attempting to append data to Google Sheet for Application ID: ${data.applicationId}`);
   if (!SPREADSHEET_ID || !SHEET_NAME) {
     console.warn("Spreadsheet ID (SPREADSHEET_ID) or Sheet Name (SHEET_NAME) is not configured in environment variables. Skipping Google Sheets append.");
     return; 
   }
+  console.log(`Using SPREADSHEET_ID: ${SPREADSHEET_ID}, SHEET_NAME: ${SHEET_NAME}`);
 
   try {
     const auth = await getAuth();
     const valuesToAppend = [mapDataToRow(data)];
+    console.log("Data mapped to row for Google Sheets:", JSON.stringify(valuesToAppend));
 
     const request: sheets_v4.Params$Resource$Spreadsheets$Values$Append = {
       spreadsheetId: SPREADSHEET_ID,
@@ -98,10 +115,11 @@ export async function appendToSpreadsheet(data: SheetRowData): Promise<void> {
       auth: auth,
     };
 
+    console.log("Sending request to Google Sheets API...");
     await sheets.spreadsheets.values.append(request);
     console.log('Data appended to Google Sheet successfully for Application ID:', data.applicationId);
   } catch (error: any) {
-    console.error('Error appending data to Google Sheet for Application ID:', data.applicationId, error.message);
+    console.error(`Error appending data to Google Sheet for Application ID: ${data.applicationId}. Error: ${error.message}`, error.stack);
     // Log the error but do not throw to prevent breaking the main application flow.
     // User experience should not be blocked if Sheets integration fails.
   }
