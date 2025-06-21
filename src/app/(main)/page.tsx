@@ -13,7 +13,7 @@ export default function HomePage() {
             Selamat Datang di Madrasah Gateway
           </h1>
           <p className="text-lg md:text-xl text-foreground/80 mb-8 max-w-2xl mx-auto">
-            Portal Pendaftaran Peserta Didik Baru (PPDB) Online. Mulai perjalanan pendidikan berkualitas bersama kami.
+            Portal Pendaftaran Peserta Didik Baru (PPDB) Online.
           </p>
           <div className="space-x-4">
             <Button size="lg" asChild className="bg-accent hover:bg-accent/90 text-accent-foreground btn-transition shadow-md">
